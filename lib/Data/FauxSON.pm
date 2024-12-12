@@ -728,10 +728,6 @@ This module is slow due to how it parses. You probably want to use a fast JSON
 parser first, in case you have valid JSON. If that fails, then you can use
 this module.
 
-=head1 AUTHOR
-
-Curtis "Ovid" Poe
-
 =head1 BUGS
 
 Please report any bugs or feature requests via the GitHub issue tracker at
@@ -742,31 +738,5 @@ L<https://github.com/Ovid/data-fauxson/issues>.
 You can find documentation for this module with the perldoc command.
 
     perldoc Data::FauxSON
-
-=head1 LICENSE AND COPYRIGHT
-
-This software is Copyright (c) 2024 by Curtis "Ovid" Poe.
-
-This is free software, licensed under:
-
-The MIT License (MIT)
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
 
 =cut

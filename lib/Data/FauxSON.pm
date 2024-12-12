@@ -27,6 +27,52 @@ has _reason => (
     default => sub {''},
 );
 
+has error_codes => (
+    is      => 'rwp',
+    default => sub { [] },
+);
+
+# Error code constants
+use constant {
+    ERR_NONE              => 0,
+    ERR_NO_STRUCTURE      => 1,
+    ERR_EXTRA_TEXT        => 2,
+    ERR_INVALID_FORMAT    => 3,
+    ERR_INVALID_STRUCTURE => 4,
+    ERR_UNCLOSED_STRING   => 5,
+    ERR_INCOMPLETE        => 6,
+};
+
+# Helper method to push error codes
+sub _push_error_codes( $self, @codes ) {
+    push $self->error_codes->@*, @codes;
+}
+
+# Predicate methods for error checking
+sub has_error_no_structure($self) {
+    return grep { ERR_NO_STRUCTURE == $_ } $self->error_codes->@*;
+}
+
+sub has_error_extra_text($self) {
+    return grep { ERR_EXTRA_TEXT == $_ } $self->error_codes->@*;
+}
+
+sub has_error_invalid_format($self) {
+    return grep { ERR_INVALID_FORMAT == $_ } $self->error_codes->@*;
+}
+
+sub has_error_invalid_structure($self) {
+    return grep { ERR_INVALID_STRUCTURE == $_ } $self->error_codes->@*;
+}
+
+sub has_error_unclosed_string($self) {
+    return grep { ERR_UNCLOSED_STRING == $_ } $self->error_codes->@*;
+}
+
+sub has_error_incomplete($self) {
+    return grep { ERR_INCOMPLETE == $_ } $self->error_codes->@*;
+}
+
 sub reason($self) { $self->_reason }
 
 sub parse ( $self, $json ) {
@@ -58,7 +104,7 @@ sub _parse_jsonl ( $self, $json ) {
     $self->_set_data( \@data );
     $self->_set_success( @data > 0 );
     $self->_set_valid( $all_valid && @data > 0 );
-    $self->_reason( \@reasons );
+    $self->_reason( join "\n", @reasons ) if @reasons;
     return $self;
 }
 
@@ -230,22 +276,28 @@ sub _parse_tokens( $self, $tokens ) {
     if ( defined $data && $pos < @$tokens ) {
         $complete = 0;
         $self->_reason("Found extra text outside JSON structure") unless $self->reason;
+        $self->_push_error_codes(ERR_EXTRA_TEXT);
     }
 
     return ( $data, $complete );
 }
 
-sub _parse_single ( $self, $json ) {
-
-    # Reset state
+sub _reset_state($self) {
+    $self->_set_error_codes( [] );
     $self->_set_data(undef);
     $self->_set_success(0);
     $self->_set_valid(0);
     $self->_reason('');
+}
+
+sub _parse_single ( $self, $json ) {
+
+    $self->_reset_state;
 
     # Empty or whitespace only
     if ( $json =~ /^\s*$/ ) {
         $self->_reason("No valid JSON structure found");
+        $self->_push_error_codes(ERR_NO_STRUCTURE);
         return $self;
     }
 
@@ -256,6 +308,7 @@ sub _parse_single ( $self, $json ) {
     }
     else {
         $self->_reason("No valid JSON structure found");
+        $self->_push_error_codes(ERR_NO_STRUCTURE);
         return $self;
     }
 
@@ -321,6 +374,7 @@ sub _parse_single ( $self, $json ) {
 
             if ( $ch eq '=' || $ch eq ';' || $ch eq '\'' ) {
                 $self->_reason("Failed to parse: Invalid JSON format");
+                $self->_push_error_codes(ERR_INVALID_FORMAT);
                 return $self;
             }
         }
@@ -329,6 +383,7 @@ sub _parse_single ( $self, $json ) {
     my ( $tokens, $last_string ) = $self->_tokenize($main_json);
     unless (@$tokens) {
         $self->_reason("Failed to parse: No valid JSON structure found");
+        $self->_push_error_codes(ERR_NO_STRUCTURE);
         return $self;
     }
 
@@ -338,6 +393,7 @@ sub _parse_single ( $self, $json ) {
 
         # failed parse
         $self->_reason("Failed to parse: Invalid JSON structure") unless $self->reason;
+        $self->_push_error_codes(ERR_INVALID_STRUCTURE);
         return $self;
     }
 
@@ -349,12 +405,14 @@ sub _parse_single ( $self, $json ) {
     if ($last_string) {
         $self->_set_valid(0);
         $self->_reason("Unclosed string starting at \"$last_string");
+        $self->_push_error_codes(ERR_UNCLOSED_STRING);
         return $self;
     }
 
     # If not complete and no reason yet
     if ( !$complete && !$self->reason ) {
         $self->_reason("Incomplete JSON structure");
+        $self->_push_error_codes(ERR_INCOMPLETE);
     }
 
     # Now check for extra text
@@ -366,6 +424,7 @@ sub _parse_single ( $self, $json ) {
     if ( $before =~ /\S/ || $after =~ /\S/ ) {
         $self->_set_valid(0);
         $self->_reason("Found extra text outside JSON structure");
+        $self->_push_error_codes(ERR_EXTRA_TEXT);
         return $self;
     }
 

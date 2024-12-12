@@ -49,7 +49,10 @@ subtest 'Trailing Commas' => sub {
     $parser->parse($json);
 
     ok $parser->success, 'parsing succeeded';
-    #ok !$parser->valid,  'JSON is not valid';
+    TODO: {
+        local $TODO = 'Trailing commas are not allowed in valid JSON';
+        ok !$parser->valid, 'JSON is not valid';
+    }
     is $parser->reason, '', 'no error message despite invalid JSON';
 
     my $expected = {
@@ -78,7 +81,7 @@ END_JSON
     ok defined $parser->data, 'Partial data extracted';
 
     ok $parser->success, 'parsing succeeded';
-    ok !$parser->valid,   'JSON is not valid';
+    ok !$parser->valid,  'JSON is not valid';
     like $parser->reason, qr/Unclosed string starting at "bone/, 'appropriate error message';
 
     my $expected = {
@@ -108,8 +111,8 @@ END_JSON
     $parser->parse($json);
 
     ok !defined $parser->data, 'no data extracted';
-    ok !$parser->success, 'parsing failed';
-    ok !$parser->valid,   'JSON is not valid';
+    ok !$parser->success,      'parsing failed';
+    ok !$parser->valid,        'JSON is not valid';
     like $parser->reason, qr/Failed to parse/, 'appropriate error message';
 };
 
@@ -125,7 +128,7 @@ END_JSONL
 
     ok $parser->success, 'parsing succeeded';
     ok $parser->valid,   'JSONL is valid';
-    is_deeply $parser->reason, [], 'no error messages';
+    ok !$parser->reason, 'no error messages';
 
     my $expected = [
         { name      => 'Alice',      age    => 25,         city   => 'Seattle' },

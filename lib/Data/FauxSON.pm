@@ -253,7 +253,9 @@ sub _parse_single ( $self, $json ) {
         return $self;
     }
 
+    # Extract from the start of the JSON structure
     my $extract = substr($json, $start);
+
     my $depth = 0;
     my $in_string = 0;
     my $escape = 0;
@@ -261,6 +263,7 @@ sub _parse_single ( $self, $json ) {
     my $first_char = substr($extract,0,1);
     $depth = 1 if $first_char eq '{' or $first_char eq '[';
 
+    # Find matching end_pos for the structure
     for my $i (0..length($extract)-1) {
         my $c = substr($extract, $i, 1);
         if ($c eq '"' && !$escape) {
@@ -279,7 +282,7 @@ sub _parse_single ( $self, $json ) {
         $escape = (!$escape && $c eq '\\');
     }
 
-    # If we never got depth==0, we try partial parse
+    # If never closed properly, we just take what we have (incomplete)
     if ($end_pos == -1) {
         $end_pos = length($extract)-1;
     }
@@ -288,8 +291,7 @@ sub _parse_single ( $self, $json ) {
     # Clean trailing commas
     $main_json =~ s/,(\s*[\]}])/$1/g;
 
-    # Check for obviously invalid JSON (unquoted keys, single quotes, =, ;)
-    # We'll do a quick scan outside of strings:
+    # Check for invalid characters outside strings (e.g., '=',';','\'')
     {
         my $check_str = 0;
         my $esc = 0;
@@ -299,11 +301,9 @@ sub _parse_single ( $self, $json ) {
                 $check_str = !$check_str;
             }
             $esc = (!$esc && $ch eq '\\');
-            next if $check_str; # ignore checks inside strings
+            next if $check_str; # inside string, ignore checks
             
-            # Outside strings, check for invalid chars
             if ($ch eq '=' || $ch eq ';' || $ch eq '\'') {
-                # invalid JSON format
                 $self->_reason("Failed to parse: Invalid JSON format");
                 return $self;
             }
@@ -319,7 +319,6 @@ sub _parse_single ( $self, $json ) {
     my ($data, $complete) = $self->_parse_tokens($tokens);
 
     if (!defined $data) {
-        # failed parse
         $self->_reason("Failed to parse: Invalid JSON structure") unless $self->reason;
         return $self;
     }
@@ -328,26 +327,26 @@ sub _parse_single ( $self, $json ) {
     $self->_set_data($data);
     $self->_set_success(1);
 
-    # If unclosed string:
+    # If there's an unclosed string
     if ($last_string) {
         $self->_set_valid(0);
         $self->_reason("Unclosed string starting at \"$last_string");
         return $self;
     }
 
-    # incomplete?
+    # If not complete and no reason yet, it's incomplete
     if (!$complete && !$self->reason) {
         $self->_reason("Incomplete JSON structure");
     }
 
-    # Check extra text before/after main structure
+    # Determine extra text
+    # $start + $end_pos = end of the JSON structure in the original $json$ string
+    my $structure_end_index = $start + $end_pos;
     my $before = substr($json, 0, $start);
-    my $after  = substr($extract, $end_pos+1); # text after the balanced structure
+    my $after  = substr($json, $structure_end_index+1);
 
-    # If we have extra text outside the structure:
     if ($before =~ /\S/ || $after =~ /\S/) {
         $self->_set_valid(0);
-        # If no reason or reason doesn't mention extra text, set it
         if (!$self->reason || $self->reason !~ /extra text/) {
             $self->_reason("Found extra text outside JSON structure");
         }

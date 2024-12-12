@@ -177,7 +177,7 @@ subtest 'Trailing Garbage' => sub {
             "age": 3,
             "color": "black",
             "favorite_toys": ["laser pointer", "mouse", "yarn"]
-        }"{}
+        }-{}
 END_JSON
 
     my $parser = Data::FauxSON->new;

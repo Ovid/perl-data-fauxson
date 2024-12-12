@@ -2,25 +2,24 @@
 package Data::FauxSON;
 use Moo;
 use experimental 'signatures';
-use Carp 'croak';
 
 has jsonl => (
     is      => 'ro',
     default => sub { 0 },
 );
 
-has _data => (
-    is      => 'rw',
+has data => (
+    is      => 'rwp',
     default => sub { undef },
 );
 
-has _success => (
-    is      => 'rw',
+has success => (
+    is      => 'rwp',
     default => sub { 0 },
 );
 
-has _valid => (
-    is      => 'rw',
+has valid => (
+    is      => 'rwp',
     default => sub { 0 },
 );
 
@@ -29,12 +28,10 @@ has _reason => (
     default => sub { '' },
 );
 
-sub data($self)    { $self->_data }
-sub success($self) { $self->_success }
-sub valid($self)   { $self->_valid }
-sub reason($self)  { $self->_reason }
+sub reason($self) { $self->_reason }
 
 sub parse ( $self, $json ) {
+    $json =~ s/^\s+|\s+$//g;  # trim leading and trailing whitespace
     return $self->_parse_jsonl($json) if $self->jsonl;
     return $self->_parse_single($json);
 }
@@ -60,9 +57,9 @@ sub _parse_jsonl ( $self, $json ) {
         }
     }
 
-    $self->_data(\@data);
-    $self->_success(@data > 0);
-    $self->_valid($all_valid && @data > 0);
+    $self->_set_data(\@data);
+    $self->_set_success(@data > 0);
+    $self->_set_valid($all_valid && @data > 0);
     $self->_reason(\@reasons);
     return $self;
 }
@@ -71,158 +68,292 @@ sub _tokenize($self, $text) {
     my @tokens;
     my $pos = 0;
     my $len = length($text);
+    my $last_string;
+    my $max_tokens = 10000; # safeguard against infinite loops
+    my $token_count = 0;
     
-    while ($pos < $len) {
+    while ($pos < $len && $token_count < $max_tokens) {
+        $token_count++;
         my $char = substr($text, $pos, 1);
         
-        # Skip whitespace
         if ($char =~ /\s/) {
             $pos++;
             next;
         }
         
-        # Handle structural characters
         if ($char =~ /[{}\[\]:,]/) {
             push @tokens, $char;
             $pos++;
             next;
         }
         
-        # Handle strings
         if ($char eq '"') {
             my $string = '';
+            my $start = substr($text, $pos);
             $pos++;  # Skip opening quote
-            while ($pos < $len) {
+            my $found_end = 0;
+            
+            while ($pos < $len && !$found_end) {
                 $char = substr($text, $pos, 1);
-                last if $char eq '"' && substr($text, $pos-1, 1) ne '\\';
+                if ($char eq '"' && substr($text, $pos-1, 1) ne '\\') {
+                    $found_end = 1;
+                    last;
+                }
                 $string .= $char;
                 $pos++;
             }
-            if ($pos < $len) {  # Found closing quote
+            
+            if ($found_end) {
                 $pos++;  # Skip closing quote
+                push @tokens, ['STRING', $string];
+            } else {
+                # Unclosed string
+                push @tokens, ['STRING', $string];
+                $last_string = $start =~ /^"([^"\s]+)/ ? $1 : '';
             }
-            push @tokens, ['STRING', $string];
             next;
         }
         
-        # Handle numbers, true, false, and null
-        if ($char =~ /[\d-]/ || substr($text, $pos, 4) eq 'true' || substr($text, $pos, 5) eq 'false') {
-            my $value = '';
-            while ($pos < $len && substr($text, $pos, 1) =~ /[\w.-]/) {
-                $value .= substr($text, $pos, 1);
+        # Handle true/false/null
+        if (substr($text, $pos) =~ /^(true|false|null)(?![a-zA-Z])/) {
+            my $value = $1;
+            push @tokens, ['LITERAL', $value];
+            $pos += length($value);
+            next;
+        }
+        
+        # Handle numbers
+        if ($char =~ /[-\d]/) {
+            my $number = '';
+            while ($pos < $len && substr($text, $pos, 1) =~ /[-\d.]/) {
+                $number .= substr($text, $pos, 1);
                 $pos++;
             }
-            push @tokens, ['VALUE', $value];
+            if ($number =~ /^-?\d+(?:\.\d+)?$/) {
+                push @tokens, ['NUMBER', $number];
+            }
             next;
         }
         
-        # Skip unknown characters
+        # Invalid character outside strings: skip it
         $pos++;
     }
     
-    return \@tokens;
+    return (\@tokens, $last_string);
 }
 
 sub _parse_tokens($self, $tokens) {
     my $pos = 0;
-    my $truncated;
-    my $extra_text;
+    my $complete = 1;
     
-    my $parse_value;
+    my $parse_value; 
     $parse_value = sub {
         return undef if $pos >= @$tokens;
         
         my $token = $tokens->[$pos++];
+        return undef unless defined $token;
         
-        # Handle arrays
+        if (ref $token eq 'ARRAY') {
+            my ($type, $value) = @$token;
+            if ($type eq 'STRING') {
+                return $value;
+            } elsif ($type eq 'NUMBER') {
+                return $value+0;
+            } elsif ($type eq 'LITERAL') {
+                return 1 if $value eq 'true';
+                return 0 if $value eq 'false';
+                return undef if $value eq 'null';
+            }
+        }
+        
         if ($token eq '[') {
             my @array;
             while ($pos < @$tokens && $tokens->[$pos] ne ']') {
                 my $value = $parse_value->();
                 push @array, $value if defined $value;
-                $pos++ if $pos < @$tokens && $tokens->[$pos] eq ',';
+                if ($pos < @$tokens && $tokens->[$pos] eq ',') {
+                    $pos++;
+                }
             }
-            $pos++ if $pos < @$tokens && $tokens->[$pos] eq ']';
+            if ($pos >= @$tokens) {
+                $complete = 0;
+            } else {
+                $pos++; # skip ']'
+            }
             return \@array;
         }
         
-        # Handle objects
         if ($token eq '{') {
             my %hash;
             while ($pos < @$tokens && $tokens->[$pos] ne '}') {
                 my $key = $tokens->[$pos];
-                $pos += 2;  # Skip key and colon
-                my $value = $parse_value->();
                 if (ref $key eq 'ARRAY' && $key->[0] eq 'STRING') {
+                    $pos++; # move past key
+                    if ($pos < @$tokens && $tokens->[$pos] eq ':') {
+                        $pos++;
+                    }
+                    my $value = $parse_value->();
                     $hash{$key->[1]} = $value if defined $value;
+                } else {
+                    # invalid key or no colon
+                    $pos++;
                 }
-                $pos++ if $pos < @$tokens && $tokens->[$pos] eq ',';
+                if ($pos < @$tokens && $tokens->[$pos] eq ',') {
+                    $pos++;
+                }
             }
-            $pos++ if $pos < @$tokens && $tokens->[$pos] eq '}';
+            if ($pos >= @$tokens) {
+                $complete = 0;
+            } else {
+                $pos++; # skip '}'
+            }
             return \%hash;
         }
         
-        # Handle literals
-        if (ref $token eq 'ARRAY') {
-            if ($token->[0] eq 'STRING') {
-                return $token->[1];
-            }
-            if ($token->[0] eq 'VALUE') {
-                return 0 if $token->[1] eq 'false';
-                return 1 if $token->[1] eq 'true';
-                return $token->[1] + 0;  # Convert to number
-            }
-        }
-        
-        return $token;
+        return $token; # leftover token, generally invalid
     };
     
-    my $result = $parse_value->();
-    
-    # Check for extra text
-    $extra_text = 1 if $pos < @$tokens;
-    
-    return ($result, $extra_text);
+    my $data;
+    {
+        local $@;
+        $data = eval { $parse_value->() };
+        if ($@) {
+            return (undef, 0);
+        }
+    }
+
+    # If extra tokens left after parsing one structure, extra text
+    if (defined $data && $pos < @$tokens) {
+        $complete = 0;
+        $self->_reason("Found extra text outside JSON structure") unless $self->reason;
+    }
+
+    return ($data, $complete);
 }
 
 sub _parse_single ( $self, $json ) {
     # Reset state
-    $self->_data(undef);
-    $self->_success(0);
-    $self->_valid(0);
+    $self->_set_data(undef);
+    $self->_set_success(0);
+    $self->_set_valid(0);
     $self->_reason('');
 
-    # Handle empty or whitespace-only input
+    # Empty or whitespace only
     if ($json =~ /^\s*$/) {
         $self->_reason("No valid JSON structure found");
         return $self;
     }
 
-    # Look for text outside JSON structure
-    my ($pre, $json_struct, $post) = $json =~ /^(\s*)([\[{].*?[\]}])(\s*.*)$/s;
-    if (!$json_struct) {
-        # Try to find a partial structure
-        ($pre, $json_struct) = $json =~ /^(\s*)([\[{].*)$/s;
+    # Find first structure start
+    my $start;
+    if ($json =~ /([\{\[])/) {
+        $start = $-[1];
+    } else {
+        $self->_reason("No valid JSON structure found");
+        return $self;
     }
-    
-    unless ($json_struct) {
+
+    my $extract = substr($json, $start);
+    my $depth = 0;
+    my $in_string = 0;
+    my $escape = 0;
+    my $end_pos = -1;
+    my $first_char = substr($extract,0,1);
+    $depth = 1 if $first_char eq '{' or $first_char eq '[';
+
+    for my $i (0..length($extract)-1) {
+        my $c = substr($extract, $i, 1);
+        if ($c eq '"' && !$escape) {
+            $in_string = !$in_string;
+        } elsif (!$in_string) {
+            if ($c eq '{' or $c eq '[') {
+                $depth++;
+            } elsif ($c eq '}' or $c eq ']') {
+                $depth--;
+                if ($depth == 0) {
+                    $end_pos = $i;
+                    last;
+                }
+            }
+        }
+        $escape = (!$escape && $c eq '\\');
+    }
+
+    # If we never got depth==0, we try partial parse
+    if ($end_pos == -1) {
+        $end_pos = length($extract)-1;
+    }
+
+    my $main_json = substr($extract, 0, $end_pos+1);
+    # Clean trailing commas
+    $main_json =~ s/,(\s*[\]}])/$1/g;
+
+    # Check for obviously invalid JSON (unquoted keys, single quotes, =, ;)
+    # We'll do a quick scan outside of strings:
+    {
+        my $check_str = 0;
+        my $esc = 0;
+        for (my $i=0; $i<length($main_json); $i++) {
+            my $ch = substr($main_json, $i, 1);
+            if ($ch eq '"' && !$esc) {
+                $check_str = !$check_str;
+            }
+            $esc = (!$esc && $ch eq '\\');
+            next if $check_str; # ignore checks inside strings
+            
+            # Outside strings, check for invalid chars
+            if ($ch eq '=' || $ch eq ';' || $ch eq '\'') {
+                # invalid JSON format
+                $self->_reason("Failed to parse: Invalid JSON format");
+                return $self;
+            }
+        }
+    }
+
+    my ($tokens, $last_string) = $self->_tokenize($main_json);
+    unless (@$tokens) {
         $self->_reason("Failed to parse: No valid JSON structure found");
         return $self;
     }
 
-    # Note extra text
-    if (($pre && $pre =~ /\S/) || ($post && $post =~ /\S/)) {
-        $self->_reason("Found extra text outside JSON structure");
+    my ($data, $complete) = $self->_parse_tokens($tokens);
+
+    if (!defined $data) {
+        # failed parse
+        $self->_reason("Failed to parse: Invalid JSON structure") unless $self->reason;
+        return $self;
     }
 
-    # Tokenize and parse
-    my $tokens = $self->_tokenize($json_struct);
-    my ($data, $extra_text) = $self->_parse_tokens($tokens);
-    
-    if (defined $data) {
-        $self->_data($data);
-        $self->_success(1);
-        $self->_valid(!$extra_text && !$self->reason);
+    # We have some data
+    $self->_set_data($data);
+    $self->_set_success(1);
+
+    # If unclosed string:
+    if ($last_string) {
+        $self->_set_valid(0);
+        $self->_reason("Unclosed string starting at \"$last_string");
+        return $self;
+    }
+
+    # incomplete?
+    if (!$complete && !$self->reason) {
+        $self->_reason("Incomplete JSON structure");
+    }
+
+    # Check extra text before/after main structure
+    my $before = substr($json, 0, $start);
+    my $after  = substr($extract, $end_pos+1); # text after the balanced structure
+
+    # If we have extra text outside the structure:
+    if ($before =~ /\S/ || $after =~ /\S/) {
+        $self->_set_valid(0);
+        # If no reason or reason doesn't mention extra text, set it
+        if (!$self->reason || $self->reason !~ /extra text/) {
+            $self->_reason("Found extra text outside JSON structure");
+        }
+    } else {
+        # If no errors so far
+        $self->_set_valid(!$self->reason);
     }
 
     return $self;

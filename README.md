@@ -41,6 +41,9 @@ The parser supports both single JSON objects and JSONL format (multiple JSON obj
 one per line). It provides detailed error reporting and can handle various common JSON
 errors including:
 
+The primary motivation of this module was dealing with "broken" JSON that is often output
+by LLMs, including trailing commas, missing closing brackets or braces, unclosed strings,
+
 - Trailing commas
 - Missing closing brackets or braces
 - Unclosed strings
@@ -106,6 +109,133 @@ The following methods return true if the specific error type was encountered:
 - has\_error\_incomplete
 
     The JSON structure was incomplete.
+
+# EXAMPLES
+
+## Trailing Commas
+
+    {
+        "name": "Luna",
+        "species": "cat",
+        "alive": true,
+        "age": 3,
+        "color": "black",
+        "favorite_toys": ["laser pointer", "mouse", "yarn",],
+    }
+
+Trailing commas are ignored. The above parses as:
+
+    {
+        name          => 'Luna',
+        species       => 'cat',
+        alive         => 1,
+        age           => 3,
+        color         => 'black',
+        favorite_toys => [ 'laser pointer', 'mouse', 'yarn' ]
+    };
+
+## Incomplete JSON
+
+    {
+        "name": "Ovid",
+        "species": "pig",
+        "age": 8,
+        "favorite_toys": ["mud", "bone
+
+Incomplete JSON is handled gracefully (for some values of "gracefully"). The above parses as:
+
+    {
+        name          => 'Ovid',
+        species       => 'pig',
+        age           => 8,
+        favorite_toys => [ 'mud', 'bone' ]
+    };
+
+Often, an LLM will stop generating JSON in the middle of a line, so the last
+line of JSON will be incomplete.  This can be caused by a variety of reasons,
+including a "max tokens" parameter being passed to the LLM. Often this can be
+"repaired" by simply passing the word "continue" to the LLM and it will pick
+up where it left off. However, if the JSON you've already received has bad
+data, such as a bad ID or a bad timestamp, asking the LLM to "continue" to
+generate bad data is a waste of money and CPU.
+
+This gives you a chance to inspect what little you have and decide if it's
+worth asking the LLM to continue.
+
+## Extra Text Around JSON
+
+    Here's the JSON you asked for!
+
+    {
+        "name": "Luna",
+        "species": "cat",
+        "age": 3,
+        "color": "black",
+        "favorite_toys": ["laser pointer", "mouse", "yarn"]
+    }
+
+    I hope you like it!
+
+The above returns:
+
+    {
+        name          => 'Luna',
+        species       => 'cat',
+        age           => 3,
+        color         => 'black',
+        favorite_toys => [ 'laser pointer', 'mouse', 'yarn' ]
+    };
+
+Typically, you can tell the LLM something like "Only output the JSON, do not
+include anything else" and it will only give you the JSON. Sometimes that
+works. Other times, it doesn't. This module tried to take that into account.
+
+This also means that things like this (which we've gotten from Claude), will
+parse as "expected":
+
+    {
+        "name": "Luna",
+        "species": "cat",
+        "age": 3,
+        "color": "black",
+        "favorite_toys": ["laser pointer", "mouse", "yarn"]
+    }"}}
+
+## Multiple JSON Objects
+
+    {
+        "name": "Luna",
+        "species": "cat",
+    }
+    {
+        "name": "Ovid",
+        "species": "pig",
+    }
+
+On the surface, this looks like invalid JSON, but it's not valid. It should either be
+in a JSON and have each object separated by a comma or it should be in JSONL format.
+Because we can't be sure what to do with this, the agove will parse, but only the 
+first object will be returned.
+
+    {
+        name    => 'Luna',
+        species => 'cat'
+    }
+
+See the tests for more examples.
+
+# TRUTH
+
+At the present time, JSON `true` and `false` are converted to Perl's `1`
+and `0`.  This might change in the future if requested. There's the open
+question of whether you want true booleans (newer versions of Perl) or JSON
+boolean objects.
+
+# PERFORMANCE
+
+This module is slow due to how it parses. You probably want to use a fast JSON
+parser first, in case you have valid JSON. If that fails, then you can use
+this module.
 
 # AUTHOR
 

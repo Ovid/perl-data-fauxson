@@ -703,7 +703,7 @@ parse as "expected":
         "species": "pig",
     }
 
-On the surface, this looks like invalid JSON, but it's not valid. It should either be
+On the surface, this might look like valid JSON, but it's not. It should either be
 in a JSON and have each object separated by a comma or it should be in JSONL format.
 Because we can't be sure what to do with this, the agove will parse, but only the 
 first object will be returned.

@@ -11,7 +11,7 @@ has jsonl => (
 
 has _data => (
     is      => 'rw',
-    default => sub { '' },
+    default => sub { undef },
 );
 
 has _success => (
@@ -52,6 +52,7 @@ sub _parse_jsonl ( $self, $json ) {
         if ($parser->success) {
             push @data, $parser->data;
             $all_valid &&= $parser->valid;
+            push @reasons, $parser->reason if $parser->reason;
         }
         else {
             push @reasons, $parser->reason;
@@ -66,29 +67,127 @@ sub _parse_jsonl ( $self, $json ) {
     return $self;
 }
 
-sub _clean_json($self, $json) {
-    # Handle trailing commas
-    $json =~ s/,(\s*[\]}])/$1/g;
+sub _tokenize($self, $text) {
+    my @tokens;
+    my $pos = 0;
+    my $len = length($text);
     
-    # Quote unquoted keys
-    $json =~ s/([{,]\s*)(\w+)\s*:/$1"$2":/g;
+    while ($pos < $len) {
+        my $char = substr($text, $pos, 1);
+        
+        # Skip whitespace
+        if ($char =~ /\s/) {
+            $pos++;
+            next;
+        }
+        
+        # Handle structural characters
+        if ($char =~ /[{}\[\]:,]/) {
+            push @tokens, $char;
+            $pos++;
+            next;
+        }
+        
+        # Handle strings
+        if ($char eq '"') {
+            my $string = '';
+            $pos++;  # Skip opening quote
+            while ($pos < $len) {
+                $char = substr($text, $pos, 1);
+                last if $char eq '"' && substr($text, $pos-1, 1) ne '\\';
+                $string .= $char;
+                $pos++;
+            }
+            if ($pos < $len) {  # Found closing quote
+                $pos++;  # Skip closing quote
+            }
+            push @tokens, ['STRING', $string];
+            next;
+        }
+        
+        # Handle numbers, true, false, and null
+        if ($char =~ /[\d-]/ || substr($text, $pos, 4) eq 'true' || substr($text, $pos, 5) eq 'false') {
+            my $value = '';
+            while ($pos < $len && substr($text, $pos, 1) =~ /[\w.-]/) {
+                $value .= substr($text, $pos, 1);
+                $pos++;
+            }
+            push @tokens, ['VALUE', $value];
+            next;
+        }
+        
+        # Skip unknown characters
+        $pos++;
+    }
     
-    # Convert single quotes to double quotes
-    $json =~ s/'([^']*)'/"$1"/g;
+    return \@tokens;
+}
+
+sub _parse_tokens($self, $tokens) {
+    my $pos = 0;
+    my $truncated;
+    my $extra_text;
     
-    # Quote unquoted string values
-    $json =~ s/:(\s*)(\w+)(\s*[,}])/:$1"$2"$3/g;
+    my $parse_value;
+    $parse_value = sub {
+        return undef if $pos >= @$tokens;
+        
+        my $token = $tokens->[$pos++];
+        
+        # Handle arrays
+        if ($token eq '[') {
+            my @array;
+            while ($pos < @$tokens && $tokens->[$pos] ne ']') {
+                my $value = $parse_value->();
+                push @array, $value if defined $value;
+                $pos++ if $pos < @$tokens && $tokens->[$pos] eq ',';
+            }
+            $pos++ if $pos < @$tokens && $tokens->[$pos] eq ']';
+            return \@array;
+        }
+        
+        # Handle objects
+        if ($token eq '{') {
+            my %hash;
+            while ($pos < @$tokens && $tokens->[$pos] ne '}') {
+                my $key = $tokens->[$pos];
+                $pos += 2;  # Skip key and colon
+                my $value = $parse_value->();
+                if (ref $key eq 'ARRAY' && $key->[0] eq 'STRING') {
+                    $hash{$key->[1]} = $value if defined $value;
+                }
+                $pos++ if $pos < @$tokens && $tokens->[$pos] eq ',';
+            }
+            $pos++ if $pos < @$tokens && $tokens->[$pos] eq '}';
+            return \%hash;
+        }
+        
+        # Handle literals
+        if (ref $token eq 'ARRAY') {
+            if ($token->[0] eq 'STRING') {
+                return $token->[1];
+            }
+            if ($token->[0] eq 'VALUE') {
+                return 0 if $token->[1] eq 'false';
+                return 1 if $token->[1] eq 'true';
+                return $token->[1] + 0;  # Convert to number
+            }
+        }
+        
+        return $token;
+    };
     
-    # Handle boolean values
-    $json =~ s/:\s*true\b/:1/g;
-    $json =~ s/:\s*false\b/:0/g;
+    my $result = $parse_value->();
     
-    return $json;
+    # Check for extra text
+    $extra_text = 1 if $pos < @$tokens;
+    
+    return ($result, $extra_text);
 }
 
 sub _parse_single ( $self, $json ) {
     # Reset state
-    $self->_data('');
+    $self->_data(undef);
     $self->_success(0);
     $self->_valid(0);
     $self->_reason('');
@@ -99,57 +198,33 @@ sub _parse_single ( $self, $json ) {
         return $self;
     }
 
-    # Find the JSON-like structure
-    my ($pre, $json_like, $post) = $json =~ /^(.*?)({[\s\S]*}|\[[\s\S]*\])(.*?)$/s;
+    # Look for text outside JSON structure
+    my ($pre, $json_struct, $post) = $json =~ /^(\s*)([\[{].*?[\]}])(\s*.*)$/s;
+    if (!$json_struct) {
+        # Try to find a partial structure
+        ($pre, $json_struct) = $json =~ /^(\s*)([\[{].*)$/s;
+    }
     
-    unless ($json_like) {
+    unless ($json_struct) {
         $self->_reason("Failed to parse: No valid JSON structure found");
         return $self;
     }
 
-    # Note if we had extra text
-    if ($pre =~ /\S/ || $post =~ /\S/) {
+    # Note extra text
+    if (($pre && $pre =~ /\S/) || ($post && $post =~ /\S/)) {
         $self->_reason("Found extra text outside JSON structure");
     }
 
-    # Clean up the JSON
-    $json_like = $self->_clean_json($json_like);
-
-    # Try to parse
-    my $data;
-    {
-        local $@;
-        eval {
-            # Convert to Perl syntax
-            my $perl = $json_like;
-            $perl =~ s/:"([^"]+)"/:$1/g;    # Remove quotes from values
-            $perl =~ s/:/=>/g;               # Convert : to =>
-            $perl =~ s/"([^"]+)"(\s*=>)/$1$2/g;  # Remove quotes from keys
-            $data = eval $perl;
-        };
-        if ($@) {
-            $self->_reason("Failed to parse: $@");
-            $self->_success(0);
-            return $self;
-        }
+    # Tokenize and parse
+    my $tokens = $self->_tokenize($json_struct);
+    my ($data, $extra_text) = $self->_parse_tokens($tokens);
+    
+    if (defined $data) {
+        $self->_data($data);
+        $self->_success(1);
+        $self->_valid(!$extra_text && !$self->reason);
     }
 
-    # Set success state
-    $self->_data($data);
-    $self->_success(1);
-    
-    # A JSON is valid if:
-    # 1. It was parsed successfully
-    # 2. Has no extra text before or after
-    # 3. Has no trailing commas
-    # 4. Has proper quote marks
-    $self->_valid(
-        $data &&                     # Successfully parsed
-        !($pre =~ /\S/) &&          # No leading text
-        !($post =~ /\S/) &&         # No trailing text
-        $json_like !~ /,(\s*[\]}])/ # No trailing commas
-    );
-    
     return $self;
 }
 

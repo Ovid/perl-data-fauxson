@@ -85,7 +85,7 @@ END_JSON
         name          => 'Ovid',
         species       => 'pig',
         age           => 8,
-        favorite_toys => [ 'mud pointer', 'bone' ],
+        favorite_toys => [ 'mud', 'bone' ],
     };
 
     eq_or_diff $parser->data, $expected, 'data structure matches expected';

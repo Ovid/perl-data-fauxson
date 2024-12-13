@@ -14,14 +14,14 @@ has original_json => (
 
 # Flag indicating if this is processing JSONL format (multiple JSON objects, one per line)
 has jsonl => (
-    is      => 'ro',              # Read-only attribute
-    default => sub {0},           # Default to single JSON mode
+    is      => 'ro',       # Read-only attribute
+    default => sub {0},    # Default to single JSON mode
 );
 
 # Holds the parsed data structure (could be hashref, arrayref, or scalar)
 has data => (
-    is      => 'rwp',             # Read-write private
-    default => sub {undef},       # Initially undefined
+    is      => 'rwp',          # Read-write private
+    default => sub {undef},    # Initially undefined
 );
 
 # Indicates if any data was successfully extracted, even if JSON was invalid
@@ -49,7 +49,7 @@ has error_codes => (
 );
 
 # Define error code constants for different types of parsing failures
-use constant {
+use constant {    ## no critic (ProhibitConstantPragma)
     ERR_NONE              => 0,    # No error
     ERR_NO_STRUCTURE      => 1,    # No valid JSON structure found
     ERR_EXTRA_TEXT        => 2,    # Text outside main JSON structure
@@ -222,10 +222,10 @@ sub _parse_tokens( $self, $tokens ) {
     # Recursive value parser
     my $parse_value;
     $parse_value = sub {
-        return undef if $pos >= @$tokens;
+        return if $pos >= @$tokens;
 
         my $token = $tokens->[ $pos++ ];
-        return undef unless defined $token;
+        return unless defined $token;
 
         # Handle typed tokens (STRING, NUMBER, LITERAL)
         if ( ref $token eq 'ARRAY' ) {
@@ -237,9 +237,9 @@ sub _parse_tokens( $self, $tokens ) {
                 return $value + 0;
             }
             elsif ( $type eq 'LITERAL' ) {
-                return 1     if $value eq 'true';
-                return 0     if $value eq 'false';
-                return undef if $value eq 'null';
+                return 1 if $value eq 'true';
+                return 0 if $value eq 'false';
+                return   if $value eq 'null';
             }
         }
 

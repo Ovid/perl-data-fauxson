@@ -472,6 +472,17 @@ sub _parse_single ( $self, $json ) {
 1;
 
 __END__
+ 
+=encoding utf-8
+
+=begin markdown
+
+![License](https://img.shields.io/github/license/ovid/perl-data-fauxson?style=flat-square)
+![GitHub Actions Workflow Status](https://github.com/ovid/perl-data-fauxson/actions/workflows/linux.yml/badge.svg)
+
+=end markdown
+ 
+=cut
 
 =head1 NAME
 

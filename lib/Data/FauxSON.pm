@@ -3,6 +3,7 @@ package Data::FauxSON;
 # ABSTRACT: A forgiving JSON parser that attempts to extract data from malformed JSON
 
 use Moo;                          # Modern OO framework
+use Carp qw(croak);               # For error handling
 use experimental 'signatures';    # Enable parameter signatures
 
 our $VERSION = '1.00';
@@ -96,8 +97,9 @@ sub reason($self) { $self->_reason }
 sub parse ( $self, $json ) {
     $self->_set_original_json($json);
     $json =~ s/^\s+|\s+$//g;    # trim leading and trailing whitespace
-    return $self->_parse_jsonl($json) if $self->jsonl;
-    return $self->_parse_single($json);
+    return $self->jsonl
+      ? $self->_parse_jsonl($json)
+      : $self->_parse_single($json);
 }
 
 # Handles parsing of JSONL format (multiple JSON objects, one per line)
@@ -133,11 +135,11 @@ sub _parse_jsonl ( $self, $json ) {
 # Tokenizes JSON text into a sequence of tokens
 sub _tokenize( $self, $text ) {
     my @tokens;
-    my $pos = 0;
-    my $len = length($text);
-    my $last_string;
-    my $max_tokens  = 10000;    # safeguard against infinite loops
+    my $pos         = 0;
+    my $len         = length($text);
+    my $max_tokens  = 10000;           # safeguard against infinite loops
     my $token_count = 0;
+    my $last_string;
 
     while ( $pos < $len && $token_count < $max_tokens ) {
         $token_count++;
@@ -237,9 +239,11 @@ sub _parse_tokens( $self, $tokens ) {
                 return $value + 0;
             }
             elsif ( $type eq 'LITERAL' ) {
-                return 1 if $value eq 'true';
-                return 0 if $value eq 'false';
-                return   if $value eq 'null';
+                return
+                    'true' eq $value  ? 1
+                  : 'false' eq $value ? 0
+                  : 'null' eq $value  ? undef
+                  :                     croak "Unexpected literal value: $value";
             }
         }
 

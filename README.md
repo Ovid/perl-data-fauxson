@@ -289,5 +289,5 @@ This software is Copyright (c) 2024 by Curtis "Ovid" Poe.
 This is free software, licensed under:
 
 ```
-The Artistic License 2.0 (GPL Compatible)
+The MIT (X11) License
 ```

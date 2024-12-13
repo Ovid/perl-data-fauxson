@@ -399,7 +399,7 @@ sub _parse_single ( $self, $json ) {
     {
         my $check_str = 0;
         my $esc       = 0;
-        for ( my $i = 0; $i < length($main_json); $i++ ) {
+        for my $i ( 0 .. length($main_json) - 1 ) {
             my $ch = substr( $main_json, $i, 1 );
             if ( $ch eq '"' && !$esc ) {
                 $check_str = !$check_str;

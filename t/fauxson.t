@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 
-use v5.20.0;
+use v5.26.0;    # indented heredocs
 use Test::Most;
 use Data::FauxSON;
 
@@ -73,13 +73,13 @@ subtest 'Trailing Commas' => sub {
 };
 
 subtest 'Incomplete JSON' => sub {
-    my $json = <<'END_JSON';
+    my $json = <<~'END_JSON';
         {
             "name": "Ovid",
             "species": "pig",
             "age": 8,
             "favorite_toys": ["mud", "bone
-END_JSON
+    END_JSON
 
     my $parser = Data::FauxSON->new;
     $parser->parse($json);
@@ -102,7 +102,7 @@ END_JSON
 };
 
 subtest 'Corrupted JSON' => sub {
-    my $json = <<'END_JSON';
+    my $json = <<~'END_JSON';
         {
             name = "Luna"
             'age': 3,
@@ -112,7 +112,7 @@ subtest 'Corrupted JSON' => sub {
                 brown
                 "black"
         }
-END_JSON
+    END_JSON
 
     my $parser = Data::FauxSON->new;
     $parser->parse($json);
@@ -125,11 +125,11 @@ END_JSON
 };
 
 subtest 'JSONL Format' => sub {
-    my $jsonl = <<'END_JSONL';
-{"name": "Alice", "age": 25, "city": "Seattle"}
-{"name": "Bob", "points": 42, "active": true}
-{"timestamp": "2024-03-11", "status": "complete", "count": 17}
-END_JSONL
+    my $jsonl = <<~'END_JSONL';
+    {"name": "Alice", "age": 25, "city": "Seattle"}
+    {"name": "Bob", "points": 42, "active": true}
+    {"timestamp": "2024-03-11", "status": "complete", "count": 17}
+    END_JSONL
 
     my $parser = Data::FauxSON->new( jsonl => 1 );
     $parser->parse($jsonl);
@@ -151,7 +151,7 @@ END_JSONL
 };
 
 subtest 'Extra Text Around JSON' => sub {
-    my $json = <<'END_JSON';
+    my $json = <<~'END_JSON';
         Here's the JSON you asked for!
 
         {
@@ -163,7 +163,7 @@ subtest 'Extra Text Around JSON' => sub {
         }
 
         I hope you like it!
-END_JSON
+    END_JSON
 
     my $parser = Data::FauxSON->new;
     $parser->parse($json);

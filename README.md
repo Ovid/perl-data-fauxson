@@ -160,7 +160,8 @@ including a "max tokens" parameter being passed to the LLM. Often this can be
 "repaired" by simply passing the word "continue" to the LLM and it will pick
 up where it left off. However, if the JSON you've already received has bad
 data, such as a bad ID or a bad timestamp, asking the LLM to "continue" to
-generate bad data is a waste of money and CPU.
+generate bad data is a waste of money and CPU. Plus, if you're doing this
+through an API instead of the Web interface, it's clumsier.
 
 This gives you a chance to inspect what little you have and decide if it's
 worth asking the LLM to continue.
@@ -217,7 +218,7 @@ parse as "expected":
 
 On the surface, this might look like valid JSON, but it's not. It should either be
 in a JSON and have each object separated by a comma or it should be in JSONL format.
-Because we can't be sure what to do with this, the agove will parse, but only the 
+Because we can't be sure what to do with this, the above will parse, but only the 
 first object will be returned.
 
     {
